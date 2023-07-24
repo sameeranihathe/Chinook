@@ -1,8 +1,14 @@
 ﻿@page "/"
 @attribute [Authorize]
 
+@using Azure.Core;
 @using Chinook.Models
+@using Microsoft.AspNetCore.Mvc;
+@using Microsoft.AspNetCore.Mvc.ViewFeatures;
 @using Microsoft.EntityFrameworkCore
+@using Chinook.Repositories.Interfaces;
+@using System.Collections.Generic;
+@inject IArtistRepository _artistRepository;
 
 <PageTitle>Index</PageTitle>
 
@@ -14,6 +20,12 @@
 }
 else
 {
+    <EditForm EditContext=Context>
+        <p>
+            Title: <InputText @bind-Value="SearchString" class="form-control" />
+            <button class="btn btn-primary" @onclick="OnSearchButtonClick"> Search </button>
+        </p>
+    </EditForm>
     <table class="table table-striped table-hover table-sm">
         <thead>
             <tr>
@@ -34,25 +46,43 @@ else
 }
 
 @code {
+    private List<Artist> originalArtists;
     private List<Artist> Artists;
+    private EditContext Context;
     [Inject] IDbContextFactory<ChinookContext> DbFactory { get; set; }
 
-    protected override async Task OnInitializedAsync() {
+    public string SearchString { get; set; } = "";
+
+    protected override async Task OnInitializedAsync()
+    {
         await InvokeAsync(StateHasChanged);
+        Context = new EditContext(SearchString);
         Artists = await GetArtists();
+        originalArtists = Artists;
     }
 
     public async Task<List<Artist>> GetArtists()
-    {   
-        var dbContext = await DbFactory.CreateDbContextAsync();
-        var users = dbContext.Users.Include(a => a.UserPlaylists).ToList();
-        
-        return dbContext.Artists.ToList();
+    {
+        return _artistRepository.GetAllArtists().ToList();
     }
 
     public async Task<List<Album>> GetAlbumsForArtist(int artistId)
     {
         var dbContext = await DbFactory.CreateDbContextAsync();
         return dbContext.Albums.Where(a => a.ArtistId == artistId).ToList();
+
+    }
+    private async Task OnSearchButtonClick()
+    {
+        if (!string.IsNullOrEmpty(SearchString))
+        {
+            Artists = originalArtists.Where(s => s.Name.ToLower().Contains(SearchString.ToLower())).ToList();
+        }
+        else
+        {
+            Artists = await GetArtists();
+            originalArtists = Artists;
+        }
+        this.StateHasChanged();
     }
 }
