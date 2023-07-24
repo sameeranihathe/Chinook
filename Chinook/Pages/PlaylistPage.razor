@@ -1,9 +1,15 @@
 ﻿@page "/playlist/{PlaylistId:long}"
 @attribute [Authorize]
 
+@using Chinook.ClientMappings;
 @using Chinook.Models
+@using Chinook.ClientModels
+@using Chinook.Repositories.Interfaces;
 @using Microsoft.EntityFrameworkCore
 @using System.Security.Claims;
+@inject IPlaylistRepository _playlistRepository;
+@inject ITrackRepository _tracksRepository;
+@inject IUserPlaylistRepository _userplaylistRepository;
 
 <h1>Playlist <strong>@Playlist.Name</strong></h1>
 
@@ -21,7 +27,7 @@
 
 @if (Playlist == null)
 {
-     <Loading />
+    <Loading />
 }
 else
 {
@@ -30,7 +36,7 @@ else
             <tr>
                 <th>Track</th>
                 <th></th>
-        </tr>
+            </tr>
         </thead>
         <tbody>
             @foreach (var track in Playlist.Tracks)
@@ -76,22 +82,8 @@ else
         await InvokeAsync(StateHasChanged);
         var DbContext = await DbFactory.CreateDbContextAsync();
 
-        Playlist = DbContext.Playlists
-            .Include(a => a.Tracks).ThenInclude(a => a.Album).ThenInclude(a => a.Artist)
-            .Where(p => p.PlaylistId == PlaylistId)
-            .Select(p => new ClientModels.Playlist()
-                {
-                    Name = p.Name,
-                    Tracks = p.Tracks.Select(t => new ClientModels.PlaylistTrack()
-                    {
-                        AlbumTitle = t.Album.Title,
-                        ArtistName = t.Album.Artist.Name,
-                        TrackId = t.TrackId,
-                        TrackName = t.Name,
-                        IsFavorite = t.Playlists.Where(p => p.UserPlaylists.Any(up => up.UserId == CurrentUserId && up.Playlist.Name == "Favorites")).Any()
-                    }).ToList()
-                })
-            .FirstOrDefault();
+        Playlist = PlaylistMapping.Map(_playlistRepository.GetPlaylistById(PlaylistId), CurrentUserId);
+
     }
 
     private async Task<string> GetUserId()
@@ -105,17 +97,71 @@ else
     {
         var track = Playlist.Tracks.FirstOrDefault(t => t.TrackId == trackId);
         InfoMessage = $"Track {track.ArtistName} - {track.AlbumTitle} - {track.TrackName} added to playlist Favorites.";
+
+        AddToFavourites(trackId);
+    }
+
+    private void AddToFavourites(long trackId)
+    {
+        var track = _tracksRepository.GetTracksByÌd(trackId);
+        var favouritePlaylist = _playlistRepository.GetFavouritePlaylist(CurrentUserId).FirstOrDefault();
+
+        if (favouritePlaylist is not null)
+        {
+            AddToFavourites(favouritePlaylist, track);
+
+        }
+        else
+        {
+            CreateFavouritePlaylist(track);
+        }
+    }
+
+    private void AddToFavourites(Models.Playlist favouritePlaylist, Models.Track track)
+    {
+        _playlistRepository.AddToFavourites(CurrentUserId, track);
+    }
+
+    private void CreateFavouritePlaylist(Track track)
+    {
+        Random random = new Random();
+        long playlistId = random.NextInt64();
+
+        UserPlaylist userPlaylist = UserPlaylistMapping.Map(CurrentUserId, playlistId);
+        _userplaylistRepository.AddNewUserPlaylist(userPlaylist, track);
+    }
+    private void AddTrackToPlaylist(UserPlaylist userPlaylist, Track track)
+    {
+        _userplaylistRepository.AddTrackToPlaylist(userPlaylist, track);
     }
 
     private void UnfavoriteTrack(long trackId)
     {
         var track = Playlist.Tracks.FirstOrDefault(t => t.TrackId == trackId);
+
+        RemoveFromFavourities(trackId);
         InfoMessage = $"Track {track.ArtistName} - {track.AlbumTitle} - {track.TrackName} removed from playlist Favorites.";
     }
 
+    private void RemoveFromFavourities(long trackId)
+    {
+        var favouritePlaylist = _playlistRepository.GetFavouritePlaylist(CurrentUserId).FirstOrDefault();
+        var track = _tracksRepository.GetTracksByÌd(trackId);
+        if (favouritePlaylist is not null)
+        {
+            _playlistRepository.RemoveFromFavourites(track, CurrentUserId);
+        }
+
+    }
     private void RemoveTrack(long trackId)
     {
         CloseInfoMessage();
+
+        var track = _tracksRepository.GetTracksByÌd(trackId);
+        var playlistid = _playlistRepository.GetPlaylistById(PlaylistId).FirstOrDefault();
+        _playlistRepository.RemoveFromPlaylist(PlaylistId, track);
+        
+        OnInitializedAsync();
 
     }
 
